@@ -1,6 +1,11 @@
 [build]
 builder = "nixpacks"
-nixpacksBuilder = "python"
+buildCommand = "pip install -r server/requirements.txt"
+startCommand = "python server/server.py"
 
 [deploy]
-startCommand = "python server.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[environments.production.variables]
+PORT = "5555"
