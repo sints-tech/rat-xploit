@@ -5,4 +5,4 @@ nixPkgs = ["python310"]
 cmds = ["pip install -r server/requirements.txt"]
 
 [start]
-cmd = "python3 server/server.py"
+cmd = "python server/server.py"
