@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+nixpacksBuilder = "python"
+
+[deploy]
+startCommand = "python server.py"
